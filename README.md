@@ -588,7 +588,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 ```
 MIT License
 
-Copyright (c) 2026 Your Name
+Copyright (c) 2026 nguyennb28
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -613,7 +613,7 @@ SOFTWARE.
 
 ## 👨‍💻 Author
 
-**Your Name**
+**nguyennb28**
 - GitHub: [@nguyennb28](https://github.com/nguyennb28)
 - Email: nguyennb.coding@gmail.com
 
@@ -648,7 +648,7 @@ Nếu project này hữu ích, đừng quên star ⭐ để support nhé!
 
 <div align="center">
 
-**Made with ❤️ and ☕ by [Your Name]**
+**Made with ❤️ and ☕ by [nguyennb28]**
 
 [⬆ Back to top](#-modern-image-converter)
 
