@@ -622,7 +622,7 @@ SOFTWARE.
 ## 🙏 Acknowledgments
 
 - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) - GUI framework
-- [Pillow](https://python-pillow.org/) - Image processing library
+- [Pillow](https://pillow.readthedocs.io/en/stable/) - Image processing library
 - [PyInstaller](https://www.pyinstaller.org/) - Packaging tool
 - [pillow-avif-plugin](https://github.com/fdintino/pillow-avif-plugin) - AVIF support
 
