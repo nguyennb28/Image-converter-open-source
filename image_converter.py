@@ -10,7 +10,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QFileDialog,
                              QComboBox, QSlider, QProgressBar, QListWidget,
-                             QGroupBox, QSpinBox, QMessageBox)
+                             QGroupBox, QSpinBox, QMessageBox, QCheckBox, QScrollArea)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon, QFont, QPalette, QColor, QDragEnterEvent, QDropEvent
 from PIL import Image
@@ -22,12 +22,55 @@ class ConversionWorker(QThread):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, files, output_format, quality, output_dir):
+    def __init__(self, files, output_format, quality, output_dir, remove_background=False, auto_detect_background=False, tolerance=30):
         super().__init__()
         self.files = files
         self.output_format = output_format
         self.quality = quality
         self.output_dir = output_dir
+        self.remove_background = remove_background
+        self.auto_detect_background = auto_detect_background
+        self.tolerance = tolerance
+
+    def _detect_background_color(self, img):
+        # sample edges to estimate background color
+        img = img.convert('RGB')
+        w, h = img.size
+        border_colors = []
+
+        for x in range(w):
+            border_colors.append(img.getpixel((x, 0)))
+            border_colors.append(img.getpixel((x, h - 1)))
+        for y in range(h):
+            border_colors.append(img.getpixel((0, y)))
+            border_colors.append(img.getpixel((w - 1, y)))
+
+        from collections import Counter
+        most_common = Counter(border_colors).most_common(1)
+        return most_common[0][0] if most_common else (255, 255, 255)
+
+    def _is_background_pixel(self, color, bg_color):
+        dr = color[0] - bg_color[0]
+        dg = color[1] - bg_color[1]
+        db = color[2] - bg_color[2]
+        return (dr*dr + dg*dg + db*db) <= (self.tolerance * self.tolerance)
+
+    def _apply_transparency(self, img):
+        img = img.convert('RGBA')
+        bg_color = (255, 255, 255)
+        if self.auto_detect_background:
+            bg_color = self._detect_background_color(img)
+
+        pixels = img.getdata()
+        new_pixels = []
+        for pixel in pixels:
+            rgb = pixel[:3]
+            if self._is_background_pixel(rgb, bg_color):
+                new_pixels.append((rgb[0], rgb[1], rgb[2], 0))
+            else:
+                new_pixels.append(pixel)
+        img.putdata(new_pixels)
+        return img
 
     def run(self):
         total = len(self.files)
@@ -36,6 +79,10 @@ class ConversionWorker(QThread):
         for idx, file_path in enumerate(self.files):
             try:
                 img = Image.open(file_path)
+
+                # Optional: remove background using selected strategy (white or auto-detect) and set alpha for transparent output
+                if self.remove_background and self.output_format.upper() in ('PNG', 'WEBP', 'AVIF'):
+                    img = self._apply_transparency(img)
 
                 # Convert RGBA to RGB nếu cần cho JPEG
                 if self.output_format.upper() == 'JPEG' and img.mode in ('RGBA', 'LA', 'P'):
@@ -87,10 +134,15 @@ class ImageConverterApp(QMainWindow):
         # Dark modern theme
         self.set_dark_theme()
 
-        # Central widget
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
+        # Central widget with scroll support
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        self.setCentralWidget(scroll_area)
+
+        content = QWidget()
+        scroll_area.setWidget(content)
+
+        main_layout = QVBoxLayout(content)
         main_layout.setSpacing(20)
         main_layout.setContentsMargins(30, 30, 30, 30)
 
@@ -99,6 +151,41 @@ class ImageConverterApp(QMainWindow):
         title.setFont(QFont("Arial", 24, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title)
+
+        # Window size controls
+        size_group = QGroupBox("🖥️ Window Size & Display")
+        size_group.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        size_layout = QHBoxLayout()
+
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(400, 3200)
+        self.width_spin.setValue(900)
+        self.width_spin.setSuffix(" px")
+
+        self.height_spin = QSpinBox()
+        self.height_spin.setRange(300, 2400)
+        self.height_spin.setValue(700)
+        self.height_spin.setSuffix(" px")
+
+        set_size_btn = QPushButton("Apply Size")
+        set_size_btn.clicked.connect(self.apply_custom_size)
+
+        fullscreen_btn = QPushButton("Toggle Fullscreen")
+        fullscreen_btn.clicked.connect(self.toggle_fullscreen)
+
+        normal_btn = QPushButton("Normal Size")
+        normal_btn.clicked.connect(self.restore_standard_size)
+
+        size_layout.addWidget(QLabel("Width:"))
+        size_layout.addWidget(self.width_spin)
+        size_layout.addWidget(QLabel("Height:"))
+        size_layout.addWidget(self.height_spin)
+        size_layout.addWidget(set_size_btn)
+        size_layout.addWidget(fullscreen_btn)
+        size_layout.addWidget(normal_btn)
+
+        size_group.setLayout(size_layout)
+        main_layout.addWidget(size_group)
 
         # File selection area
         file_group = QGroupBox("📁 Select Images")
@@ -148,6 +235,33 @@ class ImageConverterApp(QMainWindow):
         format_layout.addWidget(self.format_combo)
         format_layout.addStretch()
         settings_layout.addLayout(format_layout)
+
+        # Transparency options
+        self.transparent_background_checkbox = QCheckBox("Remove white background (output with alpha if format supports it)")
+        self.transparent_background_checkbox.setFont(QFont("Arial", 10))
+        settings_layout.addWidget(self.transparent_background_checkbox)
+
+        self.auto_detect_checkbox = QCheckBox("Auto-detect background color and remove")
+        self.auto_detect_checkbox.setFont(QFont("Arial", 10))
+        settings_layout.addWidget(self.auto_detect_checkbox)
+
+        tolerance_layout = QHBoxLayout()
+        tolerance_label = QLabel("Tolerance:")
+        tolerance_label.setFont(QFont("Arial", 11))
+        self.tolerance_value = QLabel("30")
+        self.tolerance_value.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        self.tolerance_slider = QSlider(Qt.Orientation.Horizontal)
+        self.tolerance_slider.setMinimum(0)
+        self.tolerance_slider.setMaximum(150)
+        self.tolerance_slider.setValue(30)
+        self.tolerance_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.tolerance_slider.setTickInterval(10)
+        self.tolerance_slider.valueChanged.connect(lambda v: self.tolerance_value.setText(str(v)))
+
+        tolerance_layout.addWidget(tolerance_label)
+        tolerance_layout.addWidget(self.tolerance_value)
+        settings_layout.addLayout(tolerance_layout)
+        settings_layout.addWidget(self.tolerance_slider)
 
         # Quality slider
         quality_layout = QVBoxLayout()
@@ -332,6 +446,24 @@ class ImageConverterApp(QMainWindow):
             self.file_list.addItem(Path(file).name)
         self.status_label.setText(f"{len(self.selected_files)} file(s) selected")
 
+    def apply_custom_size(self):
+        width = self.width_spin.value()
+        height = self.height_spin.value()
+        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowFullScreen)
+        self.resize(width, height)
+        self.setMinimumSize(400, 300)
+
+    def toggle_fullscreen(self):
+        if self.windowState() & Qt.WindowState.WindowFullScreen:
+            self.showNormal()
+        else:
+            self.showFullScreen()
+
+    def restore_standard_size(self):
+        self.showNormal()
+        self.resize(900, 700)
+        self.setMinimumSize(400, 300)
+
     def select_output_dir(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if directory:
@@ -358,7 +490,19 @@ class ImageConverterApp(QMainWindow):
         self.status_label.setText(f"Converting to {output_format}...")
 
         # Start conversion in background thread
-        self.worker = ConversionWorker(self.selected_files, output_format, quality, output_dir)
+        remove_background = self.transparent_background_checkbox.isChecked() or self.auto_detect_checkbox.isChecked()
+        auto_detect_background = self.auto_detect_checkbox.isChecked()
+        tolerance = self.tolerance_slider.value()
+
+        self.worker = ConversionWorker(
+            self.selected_files,
+            output_format,
+            quality,
+            output_dir,
+            remove_background=remove_background,
+            auto_detect_background=auto_detect_background,
+            tolerance=tolerance
+        )
         self.worker.progress.connect(self.progress_bar.setValue)
         self.worker.finished.connect(self.conversion_finished)
         self.worker.error.connect(self.conversion_error)
